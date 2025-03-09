@@ -3,12 +3,15 @@ services:
     image: bitnami/spark:latest
     container_name: spark-master
     environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+    ports:
       - "8080:8080"
       - "7077:7077"
     networks:
       - spark-network
     volumes:
-      - /home/shtlp_0147/Training/Spark-cluster/data:/data:ro
+      - /home/shtlp_0147/Training/Spark-cluster/asset:/asset:ro
 
   spark-worker-1:
     image: bitnami/spark:latest
@@ -23,7 +26,7 @@ services:
     networks:
       - spark-network
     volumes:
-      - /home/shtlp_0147/Training/Spark-cluster/data:/data:ro
+      - /home/shtlp_0147/Training/Trader-data-with-spark-cluster/asset:/asset:ro
 
   spark-worker-2:
     image: bitnami/spark:latest
@@ -38,7 +41,7 @@ services:
     networks:
       - spark-network
     volumes:
-      - /home/shtlp_0147/Training/Spark-cluster/data:/data:ro
+      - /home/shtlp_0147/Training/Trader-data-with-spark-cluster/asset:/asset:ro
 
   spark-submit:
     image: bitnami/spark:latest
@@ -46,9 +49,10 @@ services:
     depends_on:
       - spark-master
     volumes:
-      - /home/shtlp_0147/Training/Spark-cluster/spark/app:/app
-      - /home/shtlp_0147/Training/Spark-cluster/data:/data:ro
+      - /home/shtlp_0147/Training/Trader-data-with-spark-cluster/app:/app
+      - /home/shtlp_0147/Training/Trader-data-with-spark-cluster/asset:/asset:ro
     environment:
+      - HOME=/opt/bitnami/spark
       - SPARK_MASTER_URL=spark://spark-master:7077
     ports:
       - "8083:8081"
