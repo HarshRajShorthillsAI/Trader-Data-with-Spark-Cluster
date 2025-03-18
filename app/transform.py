@@ -1,60 +1,128 @@
-from load_data import Load_Data
-from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import initcap, concat_ws, col, array
+from pyspark.sql.functions import initcap, concat_ws, col, array, collect_set, struct, array_sort, to_json, expr
+from pyspark.sql import DataFrame
 import json
 
 class Transform:
-    def __init__(self, load_data:Load_Data, spark_session:SparkSession):
-        self.load_data = load_data
-        self.spark_session = spark_session
+    def __init__(self):
+        pass
+    
+    def rename_trim_table(self, trim):
+        trim_dataframe = (
+            trim.withColumnRenamed('ManufacturerName', 'manufacturer')\
+            .withColumnRenamed('ModelYear', 'year')\
+            .withColumnRenamed('MSRP', 'msrp')\
+            .withColumn('model', concat_ws(" ", col("ModelName"), col("TrimName")))\
+            .withColumn('category', initcap(col("ProdType")))\
+            .withColumn('subcategory', initcap(col("ProdType")))\
+            .withColumn('description', concat_ws(" ", col("manufacturer"), col("model")))\
+            .select(['ProdType', 'TrimId', 'ModelId', 'MakeId', 'manufacturer','model','year', 'msrp', 'description', 'TrimName', 'ModelName', 'category', 'subcategory'])
+        )
+        # self.loaded_data.analyze_dataframe(trim_dataframe)
+        return trim_dataframe
+    
+    def extract_country_from_feature_table(self, feature):
+        feature_dataframe = (
+            feature.filter(feature.AttributeName == 'Manufacturer Country')\
+            .withColumnRenamed('Value', 'countries')\
+            .withColumn('countries', array(col('countries')))
+        )
 
-    def get_country_for_features_dataframe(self):
-        self.load_data.feature_dataframe = self.load_data.feature_dataframe.filter(self.load_data.feature_dataframe.AttributeName == 'Manufacturer Country').withColumnRenamed('Value', 'countries').withColumn('countries', array(col('countries')))
-
-    def drop_and_rename_columns_from_trim_dataframe(self):
-        self.load_data.Trim_dataframe = self.load_data.Trim_dataframe.withColumnRenamed('ManufacturerName', 'manufacturer').withColumnRenamed('ModelYear', 'year').withColumnRenamed('MSRP', 'msrp').withColumn('model', concat_ws(" ", col("ModelName"), col("TrimName"))).withColumn('category', initcap(col("ProdType"))).withColumn('subcategory', initcap(col("ProdType"))).withColumn('description', concat_ws(" ", col("manufacturer"), col("model"))).select(['ProdType', 'TrimId', 'ModelId', 'MakeId', 'manufacturer','model','year', 'msrp', 'description', 'TrimName', 'ModelName', 'category', 'subcategory'])
-
-    def get_columns_from_identifiers_features_dataframe(self):
-        self.load_data.feature_dataframe = self.load_data.feature_dataframe.select(['TrimId', 'AttributeId', 'AttributeName', 'countries']).filter(self.load_data.feature_dataframe.FeatureName=='Identifiers')
-
-        # Convert DataFrame to a list of dictionaries (row-wise format)
-        json_data = self.create_json_output_from_dataframe(self.load_data.feature_dataframe)
-
-        # Convert to JSON string
-        json_str = json.dumps(json_data, indent=4)
-
-        rdd = self.spark_session.sparkContext.parallelize([json_str])
+        dropped_columns = ['PackageId', 'AttributeId', 'FeatureName', 'AttributeName']
+        feature_dataframe = feature_dataframe.drop(*dropped_columns)
         
-        self.load_data.resultant_dataframe = self.spark_session.read.json(rdd)
+        return feature_dataframe
+    
+    def extract_options_for_trimId(self, feature):
+        filtered_feature = feature.filter(feature.Value == 'Optional')\
+            .select(['TrimId', 'FeatureName']).groupBy('TrimId').agg(collect_set('FeatureName').alias('Options'))
+        return filtered_feature
+    
+    def extract_features_for_trimId(self, feature):
+        filtered_feature = feature.filter(feature.Value == 'Standard')\
+            .select(['TrimId', 'FeatureName']).groupBy('TrimId').agg(collect_set('FeatureName').alias('Features'))
+        
+        return filtered_feature
+    
+    def extract_meta_for_trimId(self, feature):
+        filtered_meta = feature.filter(feature.FeatureName == 'Identifiers')\
+            .filter(feature.AttributeName == 'Data Provider')\
+            .select(['TrimId', 'Value'])\
+            .withColumnRenamed('Value', 'Meta')
+        
+        return filtered_meta
 
-        self.load_data.analyze_dataframe(self.load_data.resultant_dataframe)
+    def convert_nested_array_to_json(self, feature:DataFrame):
+        # Correct transformation to JSON
+        return feature.withColumn(
+            "Details",
+            to_json(
+                expr(
+                    """
+                    map_from_arrays(
+                        transform(Details, detail -> detail.FeatureName),
+                        transform(Details, detail -> named_struct('label', detail.AttributeName, 'desc', detail.Value))
+                    )
+                    """
+                )
+            )
+        )
 
-    def join_dataframes(self, dataframe_1:DataFrame, dataframe_2:DataFrame, col:list[str], join_type="left")->DataFrame:
+    def extract_feature_detail_values(self, feature:DataFrame):
+        filtered_feature = (
+            feature.select(['TrimId', 'FeatureName', 'Value', 'AttributeName'])
+            .groupBy('TrimId', 'FeatureName')
+            .agg(expr("last(AttributeName) as AttributeName"), expr("last(Value) as Value"))
+            .groupBy('TrimId')
+            .agg(array_sort(collect_set(struct('FeatureName', 'AttributeName', 'Value'))).alias('Details'))
+        )
+
+        filtered_feature = self.convert_nested_array_to_json(filtered_feature)
+
+        return filtered_feature
+    def join_tables(self, df1:DataFrame, df2:DataFrame, col, join_type):
         try:
-            dataframe_2 = dataframe_1.join(dataframe_2, on=col, how=join_type)
-            self.load_data.analyze_dataframe(dataframe_2)
-            return dataframe_2
+            dataframe_3 = df1.join(df2, on=col, how=join_type)
+            return dataframe_3
         except Exception as e:
             print(e)
         return None
     
-    def create_json_output_from_dataframe(self, dataframe:DataFrame):
-        return [row.asDict() for row in dataframe.collect()]
-    
-    def add_key_value_from_resultant_dataframe_to_output(self, key:str, dataframe:DataFrame, output:dict):
-        dict_ =  [row.asDict() for row in dataframe.collect()]
-        if not output:
-            for d in dict_:
-                output.append({f"{key}":d})
-        else:
-            for d, e in zip(output, dict_):
-                d[key] = e
+    def generate_output(self, final_data):
 
-    def create_output(self):
-        output = []
-        self.add_key_value_from_resultant_dataframe_to_output('general', self.load_data.resultant_dataframe, output)
-        for d in output:
-            d["meta"] = {
-                "source": "CRS"
-                }
-        print(output[:5])
+        rows = final_data.collect()
+        result = []
+
+        for row in rows:
+            # trimId = row["TrimId"]
+
+            product_detail = {
+                "general" : {
+                    "ProdType": row["ProdType"].upper() if row["ProdType"] else None,
+                    "TrimId": row["TrimId"] if row["TrimId"] else None,
+                    "ModelId": row["ModelId"] if row["ModelId"] else None,
+                    "MakeId": row["MakeId"] if row["MakeId"] else None,
+                    "manufacturer": row["manufacturer"] if row["manufacturer"] else None,
+                    "model": row["model"] if row["model"] else None,
+                    "year": row["year"] if row["year"] else None,
+                    "msrp": row["msrp"] if row["msrp"] else None,
+                    "description": row["description"] if row["description"] else None,
+                    "TrimName": row["TrimName"] if row["TrimName"] else None,
+                    "ModelName": row["ModelName"] if row["ModelName"] else None,
+                    "category": row["category"] if row["category"] else None,
+                    "subcategory": row["subcategory"] if row["subcategory"] else None,
+                    "countries": row["countries"] if row["countries"] else None,
+                },
+                "meta": row["Meta"] if row["Meta"] else None,
+                "options": row["Options"] if row["Options"] else None,
+                "features": row["Features"] if row["Features"] else None,
+            }
+
+            # Merge details into product_detail
+            if row["Details"]:
+                product_detail.update({
+                    f"{feature}": value for feature, value in json.loads(row["Details"]).items()
+                })
+
+            result.append(product_detail)
+
+        return result
