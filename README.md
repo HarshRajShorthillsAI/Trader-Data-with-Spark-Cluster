@@ -77,7 +77,7 @@ docker-compose up -d
 This launches:
 - Spark master on `localhost:7077`
 - Two Spark workers connected via `spark-network`
-- All containers have access to `/data` via bind mount
+- All containers have access to `/asset` via bind mount
 
 ### 2. Prepare Data
 
