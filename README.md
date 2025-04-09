@@ -41,15 +41,27 @@ This project implements a scalable, modular ETL (Extract, Transform, Load) pipel
 
 ```
 .
+├── app
+│   ├── connection.py
+│   ├── load.py
+│   ├── main.py
+│   ├── output.json
+│   ├── pipeline.py
+│   └── transform.py
+├── asset
+│   ├── crs_data_2025-02-25.json
+│   ├── CRS_Datafeed_2025-02-28_1
+│   │   ├── logic.csv
+│   │   ├── Mfrs.csv
+│   │   ├── photogallery.csv
+│   │   ├── pkgs.csv
+│   │   └── Trims.csv
+│   ├── CRS Datafeed 2025-02-28 1.zip
+│   └── output.json
 ├── docker-compose.yml
-├── data/                             # Host directory for input .tsv.gz files
-├── spark/
-│   ├── app/                          # Additional scripts (if any)
-│   └── etl/                          # ETL pipeline implementation
-│       ├── main.py                   # Entry point script
-│       ├── etl_pipeline.py           # Coordinates all ETL tasks
-│       ├── read_data.py              # Handles data ingestion
-│       └── transform_data.py         # Applies domain-specific transformations
+├── Dockerfile
+├── README.md
+└── spark-env.sh
 ```
 
 ---
@@ -69,11 +81,11 @@ This launches:
 
 ### 2. Prepare Data
 
-Place your `.tsv.gz` files inside the `data/` directory on your host machine:
+Place your `.tsv.gz` files inside the `asset/` directory on your host machine:
 
 ```bash
-mkdir -p data/
-mv *.tsv.gz data/
+mkdir -p asset/
+mv *.tsv.gz asset/
 ```
 
 ### 3. (Optional) Create Symlink (if needed)
@@ -81,7 +93,7 @@ mv *.tsv.gz data/
 If your PySpark script requires `/data` to exist as an absolute path:
 
 ```bash
-sudo ln -s /home/your_user/Training/Spark-cluster/data /data
+sudo ln -s /home/your_user/Training/Spark-cluster/asset /data
 ```
 
 > This step depends on how paths are interpreted in your code and container runtime.
@@ -89,7 +101,7 @@ sudo ln -s /home/your_user/Training/Spark-cluster/data /data
 ### 4. Execute the ETL Pipeline from Host
 
 ```bash
-python3 spark/etl/main.py
+python3 app/main.py
 ```
 
 The script:
