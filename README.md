@@ -189,5 +189,3 @@ The pipeline prints:
 This project is open-source under the [MIT License](LICENSE), unless otherwise specified.
 
 ---
-
-Let me know if you'd like to add badges (e.g., Docker, Spark, Python), CI/CD hooks, or academic citation format.
